@@ -41,6 +41,23 @@ class DockeratorTests {
     await dock.start({ untilExit: true })
   }
 
+  @test(timeout(20000)) public async runExisting() {
+    const dock = new Dockerator({
+      image: 'mongo:4.0.6',
+      portMappings: ['27017:27017']
+    })
+    await dock.setup()
+    dock.loadExitHandler()
+    dock.start()
+    await new Promise(resolve => setTimeout(() => resolve(), 3000))
+    dock.stop({ autoRemove: false })
+    await new Promise(resolve => setTimeout(() => resolve(), 3000))
+    dock.start({ untilExit: true })
+    await new Promise(resolve => setTimeout(() => resolve(), 3000))
+    await dock.stop()
+    // TODO remove volumes on exit and remove container
+  }
+
   @test(timeout(10000)) public async runMongo() {
     const dock = new Dockerator({
       image: 'mongo:4.0.6',

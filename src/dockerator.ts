@@ -10,6 +10,7 @@ export = class Dockerator {
   public stdio: { stdout?: Writable; stderr?: Writable }
   public dockerConfig: any
   public container?: Docker.Container
+  public containerStream?: Readable
   public finished?: Promise<unknown>
 
   constructor({
@@ -74,13 +75,36 @@ export = class Dockerator {
     }
   }
 
-  public async stop() {
+  public async start({ containerId = '', untilExit = false } = {}) {
+    if (containerId) {
+      this.container = this.docker.getContainer(containerId)
+    } else if (!this.container) {
+      this.container = await this.createContainer(containerId)
+    }
+    if (!this.detach) {
+      if (this.containerStream) {
+        this.containerStream.destroy()
+      }
+      await this.attachContainerStream(untilExit)
+    }
+    await this.container.start()
+    if (untilExit) {
+      await this.finished
+      await this.container.remove()
+      this.container = undefined
+      this.containerStream = undefined
+    }
+  }
+
+  public async stop({ autoRemove = true } = {}) {
     if (!this.container) {
       throw new Error('Cannot stop container before starting it')
     }
     try {
       await this.container.stop()
-      await this.container.remove()
+      if (autoRemove) {
+        this.remove()
+      }
     } catch (e) {
       if (e.statusCode !== 409 && e.statusCode !== 304) {
         throw e
@@ -88,8 +112,23 @@ export = class Dockerator {
     }
   }
 
-  public async start({ untilExit = false } = {}) {
-    this.container = await this.docker.createContainer({
+  public async remove() {
+    if (!this.container) {
+      throw new Error('Cannot stop container before starting it')
+    }
+    try {
+      await this.container.remove()
+      this.container = undefined
+      this.containerStream = undefined
+    } catch (e) {
+      if (e.statusCode !== 409 && e.statusCode !== 304) {
+        throw e
+      }
+    }
+  }
+
+  public async createContainer(containerId = '') {
+    return this.docker.createContainer({
       AttachStdin: false,
       AttachStdout: true,
       AttachStderr: true,
@@ -126,79 +165,99 @@ export = class Dockerator {
       Cmd: this.command || undefined,
       ...this.dockerConfig
     })
-    if (!this.detach) {
-      const stream = ((await this.container.attach({
-        stream: true,
-        stdout: true,
-        stderr: true
-      })) as any) as Readable
-      if (untilExit) {
-        let markSuccess: () => void
-        let markError: (error: any) => void
-        this.finished = new Promise((resolve, reject) => {
-          markSuccess = resolve
-          markError = reject
-        })
-        const executionErrorMsg =
-          'Execution error.' +
-          (this.stdio.stdout && this.stdio.stdout.writable
-            ? ''
-            : ' If you need more details, enable container stdout.')
-        if (process.platform !== 'win32') {
-          stream.once('end', () => {
-            this.container!.inspect()
-              .then(({ State }) => {
-                if (State.Status === 'exited' && State.ExitCode === 0) {
-                  markSuccess()
-                } else {
-                  const error = new Error(State.Error || executionErrorMsg)
-                  ;(error as any).exitCode = State.ExitCode
-                  markError(error)
-                }
-              })
-              .catch(markError)
-          })
-        } else {
-          const checkerHandler = setInterval(() => {
-            this.container!.inspect()
-              .then(({ State }) => {
-                if (State.Status === 'running') {
-                  return
-                }
-                if (State.Status === 'exited' && State.ExitCode === 0) {
-                  markSuccess()
-                } else {
-                  const error = new Error(State.Error || executionErrorMsg)
-                  ;(error as any).exitCode = State.ExitCode
-                  markError(error)
-                }
-                clearInterval(checkerHandler)
-                stream.destroy()
-              })
-              .catch(error => {
+  }
+
+  public async attachContainerStream(untilExit = false) {
+    if (!this.container) {
+      throw new Error('Cannot create container stream')
+    }
+
+    this.containerStream = ((await this.container.attach({
+      stream: true,
+      stdout: true,
+      stderr: true
+    })) as any) as Readable
+
+    if (untilExit) {
+      let markSuccess: () => void
+      let markError: (error: any) => void
+      this.finished = new Promise((resolve, reject) => {
+        markSuccess = resolve
+        markError = reject
+      })
+      const executionErrorMsg =
+        'Execution error.' +
+        (this.stdio.stdout && this.stdio.stdout.writable
+          ? ''
+          : ' If you need more details, enable container stdout.')
+      if (process.platform !== 'win32') {
+        this.containerStream.once('end', () => {
+          if (!this.container) {
+            if (this.containerStream) {
+              this.containerStream.destroy()
+            }
+            return
+          }
+          this.container
+            .inspect()
+            .then(({ State }) => {
+              if (State.Status === 'exited' && State.ExitCode === 0) {
+                markSuccess()
+              } else {
+                const error = new Error(State.Error || executionErrorMsg)
+                ;(error as any).exitCode = State.ExitCode
                 markError(error)
-                clearInterval(checkerHandler)
-                stream.destroy()
-              })
-          }, 1000)
-        }
-      }
-      if (this.stdio.stdout && this.stdio.stdout.writable) {
-        stream.setEncoding('utf8')
-        stream.pipe(
-          this.stdio.stdout,
-          { end: true }
-        )
-      } else {
-        stream.on('data', () => {
-          // Discard data
+              }
+            })
+            .catch(markError)
         })
+      } else {
+        const checkerHandler = setInterval(() => {
+          if (!this.container) {
+            if (this.containerStream) {
+              this.containerStream.destroy()
+            }
+            return
+          }
+          this.container
+            .inspect()
+            .then(({ State }) => {
+              if (State.Status === 'running') {
+                return
+              }
+              if (State.Status === 'exited' && State.ExitCode === 0) {
+                markSuccess()
+              } else {
+                const error = new Error(State.Error || executionErrorMsg)
+                ;(error as any).exitCode = State.ExitCode
+                markError(error)
+              }
+              clearInterval(checkerHandler)
+              if (this.containerStream) {
+                this.containerStream.destroy()
+              }
+            })
+            .catch(error => {
+              markError(error)
+              clearInterval(checkerHandler)
+              if (this.containerStream) {
+                this.containerStream.destroy()
+              }
+            })
+        }, 1000)
       }
     }
-    await this.container.start()
-    if (untilExit) {
-      await this.finished
-      await this.container.remove()
+
+    if (this.stdio.stdout && this.stdio.stdout.writable) {
+      this.containerStream.setEncoding('utf8')
+      this.containerStream.pipe(
+        this.stdio.stdout,
+        { end: true }
+      )
+    } else {
+      this.containerStream.on('data', () => {
+        // Discard data
+      })
     }
   }
 
