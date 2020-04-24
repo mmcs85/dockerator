@@ -6,7 +6,7 @@ import Dockerator from '../src/dockerator'
 class DockeratorTests {
   @test(timeout(10000)) public async runDockerfile() {
     const dock = new Dockerator({
-      image: 'eosio-operator',
+      image: 'dfuse-eos',
       command: ['cleos', '--help']
     })
     await dock.setup({ context: 'docker', src: ['Dockerfile'] })
