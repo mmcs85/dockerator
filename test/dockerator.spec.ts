@@ -10,7 +10,8 @@ class DockeratorTests {
       command: ['cleos', '--help']
     })
     await dock.setup({ context: 'docker', src: ['Dockerfile'] })
-    await dock.start({ untilExit: true })
+    await dock.start({ blockUntilExit: true })
+    await dock.remove()
   }
 
   @test public async runFalse() {
@@ -19,7 +20,8 @@ class DockeratorTests {
       command: ['bash', '-c', 'echo "Some falsehood" && false']
     })
     await dock.setup()
-    assert.rejects(dock.start({ untilExit: true }))
+    await assert.rejects(dock.start({ blockUntilExit: true }))
+    await dock.remove()
   }
 
   @test public async runError() {
@@ -29,7 +31,8 @@ class DockeratorTests {
       // stdio: 'ignore'
     })
     await dock.setup()
-    assert.rejects(dock.start({ untilExit: true }))
+    await assert.rejects(dock.start({ blockUntilExit: true }))
+    await dock.remove()
   }
 
   @test public async runTrue() {
@@ -38,21 +41,21 @@ class DockeratorTests {
       command: ['bash', '-c', 'echo "Some truth" && true']
     })
     await dock.setup()
-    await dock.start({ untilExit: true })
+    await dock.start({ blockUntilExit: true })
+    await dock.remove()
   }
 
-  @test(timeout(20000)) public async runExisting() {
+  @test(timeout(20000)) public async runMongeMultipleTimes() {
     const dock = new Dockerator({
       image: 'mongo:4.0.6',
       portMappings: ['27017:27017']
     })
     await dock.setup()
-    dock.loadExitHandler()
-    dock.start()
+    await dock.start()
     await new Promise(resolve => setTimeout(() => resolve(), 3000))
-    dock.stop({ autoRemove: false })
+    await dock.stop({ autoRemove: false })
     await new Promise(resolve => setTimeout(() => resolve(), 3000))
-    dock.start({ untilExit: true })
+    await dock.start()
     await new Promise(resolve => setTimeout(() => resolve(), 3000))
     await dock.stop()
   }
@@ -63,8 +66,7 @@ class DockeratorTests {
       portMappings: ['27017:27017']
     })
     await dock.setup()
-    dock.loadExitHandler()
-    dock.start({ untilExit: true })
+    await dock.start()
     await new Promise(resolve => setTimeout(() => resolve(), 6000))
     await dock.stop()
   }

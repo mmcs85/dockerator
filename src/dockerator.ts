@@ -75,19 +75,21 @@ export = class Dockerator {
     }
   }
 
-  public async start({ containerId = '', untilExit = false } = {}) {
+  public async start({ containerId = '', blockUntilExit = false } = {}) {
     if (containerId) {
       this.container = this.docker.getContainer(containerId)
     } else if (!this.container) {
       this.container = await this.createContainer(containerId)
     }
     if (!this.detach) {
-      await this.attachContainerStream(untilExit)
+      await this.attachContainerStream(blockUntilExit)
     }
-    await this.container.start()
-    if (untilExit) {
-      await this.finished
-      this.remove()
+    try {
+      await this.container.start()
+    } finally {
+      if (blockUntilExit) {
+        await this.finished
+      }
     }
   }
 
@@ -96,7 +98,7 @@ export = class Dockerator {
       throw new Error('Cannot stop container before starting it')
     }
     try {
-      await this.container.stop()
+      await this.container.stop({ t: 10 })
       if (autoRemove) {
         this.remove()
       }
@@ -112,19 +114,17 @@ export = class Dockerator {
       throw new Error('Cannot stop container before starting it')
     }
     try {
-      await this.container.remove({ v: true })
+      await this.container.remove({ v: true, force: true })
       this.container = undefined
+      if (this.stdio.stdout) {
+        this.stdio.stdout = undefined
+      }
+      if (this.stdio.stderr) {
+        this.stdio.stderr = undefined
+      }
       if (this.containerStream) {
         this.containerStream.destroy()
         this.containerStream = undefined
-        if (this.stdio.stdout) {
-          this.stdio.stdout.destroy()
-          this.stdio.stdout = undefined
-        }
-        if (this.stdio.stderr) {
-          this.stdio.stderr.destroy()
-          this.stdio.stderr = undefined
-        }
       }
     } catch (e) {
       if (e.statusCode !== 409 && e.statusCode !== 304) {
@@ -173,7 +173,7 @@ export = class Dockerator {
     })
   }
 
-  public async attachContainerStream(untilExit = false) {
+  public async attachContainerStream(blockUntilExit = false) {
     if (!this.container) {
       throw new Error('Cannot create container stream')
     }
@@ -184,7 +184,7 @@ export = class Dockerator {
       stderr: true
     })) as any) as Readable
 
-    if (untilExit) {
+    if (blockUntilExit) {
       let markSuccess: () => void
       let markError: (error: any) => void
       this.finished = new Promise((resolve, reject) => {
