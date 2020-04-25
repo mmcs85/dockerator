@@ -82,17 +82,12 @@ export = class Dockerator {
       this.container = await this.createContainer(containerId)
     }
     if (!this.detach) {
-      if (this.containerStream) {
-        this.containerStream.destroy()
-      }
       await this.attachContainerStream(untilExit)
     }
     await this.container.start()
     if (untilExit) {
       await this.finished
-      await this.container.remove()
-      this.container = undefined
-      this.containerStream = undefined
+      this.remove()
     }
   }
 
@@ -117,9 +112,20 @@ export = class Dockerator {
       throw new Error('Cannot stop container before starting it')
     }
     try {
-      await this.container.remove()
+      await this.container.remove({ v: true })
       this.container = undefined
-      this.containerStream = undefined
+      if (this.containerStream) {
+        this.containerStream.destroy()
+        this.containerStream = undefined
+        if (this.stdio.stdout) {
+          this.stdio.stdout.destroy()
+          this.stdio.stdout = undefined
+        }
+        if (this.stdio.stderr) {
+          this.stdio.stderr.destroy()
+          this.stdio.stderr = undefined
+        }
+      }
     } catch (e) {
       if (e.statusCode !== 409 && e.statusCode !== 304) {
         throw e

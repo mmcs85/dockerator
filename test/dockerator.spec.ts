@@ -55,7 +55,6 @@ class DockeratorTests {
     dock.start({ untilExit: true })
     await new Promise(resolve => setTimeout(() => resolve(), 3000))
     await dock.stop()
-    // TODO remove volumes on exit and remove container
   }
 
   @test(timeout(10000)) public async runMongo() {
