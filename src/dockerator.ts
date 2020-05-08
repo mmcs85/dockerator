@@ -100,7 +100,7 @@ export = class Dockerator {
     try {
       await this.container.stop({ t: 10 })
       if (autoRemove) {
-        this.remove()
+        await this.remove()
       }
     } catch (e) {
       if (e.statusCode !== 409 && e.statusCode !== 304) {
