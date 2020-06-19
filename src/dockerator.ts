@@ -86,6 +86,11 @@ export = class Dockerator {
     }
     try {
       await this.container.start()
+    } catch (e) {
+      // container already started
+      if (e.statusCode !== 304) {
+        throw e
+      }
     } finally {
       if (blockUntilExit) {
         await this.finished
