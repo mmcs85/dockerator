@@ -78,6 +78,14 @@ export = class Dockerator {
   public async start({ containerId = '', blockUntilExit = false } = {}) {
     if (containerId) {
       this.container = this.docker.getContainer(containerId)
+      try {
+        await this.container.inspect()
+      } catch (e) {
+        // container not found
+        if (e.statusCode !== 404) {
+          throw e
+        }
+      }
     } else if (!this.container) {
       this.container = await this.createContainer(containerId)
     }
@@ -86,11 +94,6 @@ export = class Dockerator {
     }
     try {
       await this.container.start()
-    } catch (e) {
-      // container already started
-      if (e.statusCode !== 304) {
-        throw e
-      }
     } finally {
       if (blockUntilExit) {
         await this.finished
