@@ -77,8 +77,9 @@ export = class Dockerator {
 
   public async start({ containerId = '', blockUntilExit = false } = {}) {
     if (containerId) {
-      this.container = this.docker.getContainer(containerId)
-      await this.container.inspect()
+      const container = this.docker.getContainer(containerId)
+      await container.inspect()
+      this.container = container
     } else if (!this.container) {
       this.container = await this.createContainer(containerId)
     }
